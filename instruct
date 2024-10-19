@@ -1,0 +1,74 @@
+package main
+
+import (
+    "log"
+    "github.com/streadway/amqp"
+    "github.com/jordan-wright/email"
+    "net/smtp"
+)
+
+// ... 其他代码 ...
+
+func sendEmail(to string, subject string, body string) {
+    e := email.NewEmail()
+    e.From = "Your Name <your-email@example.com>"
+    e.To = []string{to}
+    e.Subject = subject
+    e.Text = []byte(body)
+    err := e.Send("smtp.example.com:587", smtp.PlainAuth("", "your-email@example.com", "your-password", "smtp.example.com"))
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+
+func main() {
+    // 连接到RabbitMQ
+    conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conn.Close()
+
+    ch, err := conn.Channel()
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer ch.Close()
+
+    q, err := ch.QueueDeclare(
+        "email_queue", // 队列名称
+        false,         // 是否持久化
+        false,         // 是否自动删除
+        false,         // 是否排他
+        false,         // 是否阻塞
+        nil,           // 额外属性
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    msgs, err := ch.Consume(
+        q.Name, // 队列名称
+        "",     // 消费者名称
+        true,   // 自动应答
+        false,  // 是否排他
+        false,  // 是否阻塞
+        false,  // 是否本地
+        nil,    // 额外属性
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 启动一个goroutine来处理消息
+    go func() {
+        for d := range msgs {
+            log.Printf("Received a message: %s", d.Body)
+            // 解析消息并发送邮件
+            sendEmail(string(d.Body), "Your Verification Code", "Here is your verification code: 123456")
+        }
+    }()
+
+    log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
+    select {}
+}
